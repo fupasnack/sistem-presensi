@@ -1,0 +1,46 @@
+{
+  "name": "Presensi FUPA",
+  "short_name": "Presensi",
+  "description": "Sistem presensi digital untuk karyawan FUPA",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#FFD54F",
+  "theme_color": "#FFC107",
+  "orientation": "portrait",
+  "categories": ["business", "productivity"],
+  "lang": "id",
+  "icons": [
+    {
+      "src": "https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiI+PHBhdGggZD0iTTI1NiA0NjhhMjEyIDIxMiAwIDEgMSAwLTQyNCAyMTIgMjEyIDAgMCAxIDAgNDI0eiIgZmlsbD0iI0ZGMEEwMCIvPjxwYXRoIGQ9Ik0yNTYgOTZhMTYwIDE2MCAwIDEgMSAwIDMyMCAxNjAgMTYwIDAgMCAxIDAtMzIweiIgZmlsbD0iI0ZGRjU5RCIvPjxwYXRoIGQ9Ik0yNzIgMjcyVjE0NGgtMzJ2MTI4aC05NnYzMmgxMjh2LTMyeiIgZmlsbD0iI0ZGMEEwMCIvPjwvc3ZnPg==",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://via.placeholder.com/540/720/FFD54F/000000?text=Presensi+FUPA",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "https://via.placeholder.com/720/540/FFD54F/000000?text=Presensi+FUPA",
+      "sizes": "720x540",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ]
+}

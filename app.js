@@ -180,76 +180,105 @@ function guardPage(uid, required) {
   return true;
 }
 
-// Fungsi untuk memeriksa koneksi Firestore
+// Fungsi untuk memeriksa koneksi Firestore (Diperbarui)
 async function checkFirestoreConnection() {
   try {
-    const docRef = db.collection("_meta").doc("connectionTest");
-    await docRef.set({ test: true, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-    await docRef.delete();
-    return true;
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout")), 5000)
+    );
+    
+    const connectionPromise = (async () => {
+      const docRef = db.collection("_meta").doc("connectionTest");
+      await docRef.set({ 
+        test: true, 
+        timestamp: firebase.firestore.FieldValue.serverTimestamp() 
+      });
+      await docRef.delete();
+      return true;
+    })();
+    
+    return await Promise.race([connectionPromise, timeoutPromise]);
   } catch (error) {
     console.error("Koneksi Firestore gagal:", error);
     return false;
   }
 }
 
-// Auto bootstrap koleksi & dokumen penting
+// Auto bootstrap koleksi & dokumen penting (Diperbarui)
 async function bootstrapCollections(user) {
-  try {
-    // Periksa koneksi Firestore terlebih dahulu
-    const isConnected = await checkFirestoreConnection();
-    if (!isConnected) {
-      throw new Error("Tidak dapat terhubung ke database");
-    }
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000; // 1 second
 
-    // users profile doc
-    const up = db.collection("users").doc(user.uid);
-    const userDoc = await up.get();
-    
-    if (!userDoc.exists) {
-      await up.set({
-        email: user.email || "",
-        nama: user.email.split("@")[0] || "",
-        role: ADMIN_UIDS.has(user.uid) ? "admin" : (KARYAWAN_UIDS.has(user.uid) ? "karyawan" : "unknown"),
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`Bootstrap attempt ${attempt}/${MAX_RETRIES}`);
+      
+      // Periksa koneksi Firestore terlebih dahulu
+      const isConnected = await checkFirestoreConnection();
+      if (!isConnected) {
+        throw new Error("Tidak dapat terhubung ke database");
+      }
 
-    // meta server tick - hanya update jika sudah ada
-    const metaRef = db.collection("_meta").doc("_srv");
-    const metaDoc = await metaRef.get();
-    if (!metaDoc.exists) {
-      await metaRef.set({ 
-        t: firebase.firestore.FieldValue.serverTimestamp(),
-        initialized: true
-      });
-    } else {
-      await metaRef.set({ 
-        t: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-    }
+      // users profile doc
+      const up = db.collection("users").doc(user.uid);
+      const userDoc = await up.get();
+      
+      if (!userDoc.exists) {
+        await up.set({
+          email: user.email || "",
+          nama: user.email.split("@")[0] || "",
+          role: ADMIN_UIDS.has(user.uid) ? "admin" : (KARYAWAN_UIDS.has(user.uid) ? "karyawan" : "unknown"),
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
 
-    // settings today default - hanya buat jika belum ada
-    const todayDoc = db.collection("_settings").doc("today");
-    const todayData = await todayDoc.get();
-    
-    if (!todayData.exists) {
-      await todayDoc.set({
-        mode: "auto", 
-        date: ymd(new Date()),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+      // Hanya admin yang dapat menginisialisasi meta dan settings
+      if (ADMIN_UIDS.has(user.uid)) {
+        // meta server tick - hanya update jika sudah ada
+        const metaRef = db.collection("_meta").doc("_srv");
+        const metaDoc = await metaRef.get();
+        if (!metaDoc.exists) {
+          await metaRef.set({ 
+            t: firebase.firestore.FieldValue.serverTimestamp(),
+            initialized: true
+          });
+        } else {
+          await metaRef.set({ 
+            t: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+        }
+
+        // settings today default - hanya buat jika belum ada
+        const todayDoc = db.collection("_settings").doc("today");
+        const todayData = await todayDoc.get();
+        
+        if (!todayData.exists) {
+          await todayDoc.set({
+            mode: "auto", 
+            date: ymd(new Date()),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+      
+      console.log("Bootstrap successful");
+      return true;
+      
+    } catch (error) {
+      console.error(`Bootstrap attempt ${attempt} failed:`, error);
+      
+      if (attempt === MAX_RETRIES) {
+        throw error; // Throw error setelah semua retry gagal
+      }
+      
+      // Tunggu sebelum retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
     }
-    
-    return true;
-  } catch (error) {
-    console.error("Error bootstrapping collections:", error);
-    throw error;
   }
 }
 
-// Auth routing untuk semua halaman
+// Auth routing untuk semua halaman (Diperbarui error handling)
 auth.onAuthStateChanged(async (user) => {
   console.log("Auth state changed:", user ? user.uid : "No user");
   const path = location.pathname.toLowerCase();
@@ -271,13 +300,25 @@ auth.onAuthStateChanged(async (user) => {
     await bootstrapCollections(user);
   } catch (error) {
     console.error("Bootstrap error:", error);
-    toast("Gagal menginisialisasi sistem. Silakan refresh halaman.", true);
+    
+    // Berikan error message yang lebih spesifik
+    let errorMessage = "Gagal menginisialisasi sistem. Silakan refresh halaman.";
+    
+    if (error.code === 'permission-denied') {
+      errorMessage = "Izin database ditolak. Hubungi administrator.";
+    } else if (error.message.includes('Timeout')) {
+      errorMessage = "Timeout terhubung ke database. Periksa koneksi internet.";
+    } else if (error.message.includes('Tidak dapat terhubung')) {
+      errorMessage = "Tidak dapat terhubung ke database. Periksa koneksi internet.";
+    }
+    
+    toast(errorMessage, true);
     
     // Tambahkan delay sebelum redirect untuk memberi waktu membaca pesan error
     setTimeout(() => {
       auth.signOut();
       location.href = "index.html";
-    }, 3000);
+    }, 5000);
     return;
   }
 

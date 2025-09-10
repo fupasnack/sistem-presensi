@@ -84,7 +84,6 @@ function notify(msg) {
 async function getServerTime() {
   try {
     const docRef = db.collection("_meta").doc("_srv");
-    await docRef.set({ t: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
     const snap = await docRef.get();
     const ts = snap.get("t");
     return ts ? ts.toDate() : new Date();
@@ -523,15 +522,21 @@ function subscribeRiwayat(uid, cb) {
     });
 }
 
-// Notifikasi list untuk karyawan
+// Notifikasi list untuk karyawan (Diperbarui)
 function subscribeNotifForKaryawan(uid, cb) {
   return db.collection("notifs")
-    .where("targets", "array-contains-any", ["all", uid])
+    .where("targets", "array-contains", uid)
     .orderBy("createdAt", "desc")
     .limit(20)
     .onSnapshot(snap => {
       const arr = [];
-      snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+      snap.forEach(d => {
+        const data = d.data();
+        // Pastikan notifikasi untuk semua (all) juga ditampilkan
+        if (data.targets && (data.targets.includes("all") || data.targets.includes(uid))) {
+          arr.push({ id: d.id, ...data });
+        }
+      });
       cb(arr);
     }, error => {
       console.error("Error fetching notifications:", error);
@@ -862,7 +867,7 @@ async function bindKaryawanPage(user) {
     });
   });
 
-  // Notifikasi dialog
+  // Notifikasi dialog (Diperbarui)
   $("#notifBtn").onclick = () => $("#notifDlg").showModal();
   
   const unsubNotif = subscribeNotifForKaryawan(user.uid, (items) => {

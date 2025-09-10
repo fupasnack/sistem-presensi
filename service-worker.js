@@ -1,5 +1,5 @@
 // service-worker.js — cache dasar untuk shell offline dengan update untuk mendukung fitur notifikasi
-const CACHE = "presensi-fupa-v3";
+const CACHE = "presensi-fupa-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -36,14 +36,17 @@ self.addEventListener("activate", (e) => {
         keys.filter(k => k !== CACHE)
           .map(k => caches.delete(k))
       );
-    }).then(() => self.clients.claim())
+    }).then(() => {
+      console.log('Service Worker activated and ready to handle fetches!');
+      return self.clients.claim();
+    })
   );
 });
 
 // Fetch event - strategi cache pertama, fallback ke network
 self.addEventListener("fetch", (e) => {
-  // Skip cross-origin requests
-  if (!e.request.url.startsWith(self.location.origin)) {
+  // Skip non-GET requests
+  if (e.request.method !== 'GET') {
     return;
   }
 
@@ -54,7 +57,7 @@ self.addEventListener("fetch", (e) => {
         return cachedResponse;
       }
 
-      // Otherwise, get from network and cache it
+      // Otherwise, get from network
       return fetch(e.request).then(response => {
         // Check if valid response
         if (!response || response.status !== 200 || response.type !== 'basic') {
@@ -70,10 +73,20 @@ self.addEventListener("fetch", (e) => {
 
         return response;
       }).catch(error => {
-        console.log('Fetch failed; returning offline page:', error);
+        console.log('Fetch failed:', error);
         // For HTML pages, return the offline page
         if (e.request.headers.get('accept').includes('text/html')) {
           return caches.match('./index.html');
+        }
+        // For API calls, return a custom offline response
+        if (e.request.url.includes('firestore.googleapis.com')) {
+          return new Response(JSON.stringify({ 
+            error: 'Anda sedang offline. Silakan periksa koneksi internet Anda.' 
+          }), {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({ 'Content-Type': 'application/json' })
+          });
         }
       });
     })
@@ -92,30 +105,52 @@ async function doBackgroundSync() {
   // Implementasi background sync untuk notifikasi
   // Di sini kita bisa menambahkan logika untuk mengirim notifikasi
   // bahkan ketika aplikasi tidak sedang dibuka
-  const clients = await self.clients.matchAll();
-  clients.forEach(client => {
-    client.postMessage({
-      type: 'background-sync',
-      message: 'Aplikasi Presensi FUPA sedang berjalan di latar belakang'
+  try {
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'background-sync',
+        message: 'Aplikasi Presensi FUPA sedang berjalan di latar belakang',
+        timestamp: new Date().toISOString()
+      });
     });
-  });
+    
+    // Simulasikan proses sinkronisasi
+    console.log('Background sync completed successfully');
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Background sync failed:', error);
+    return Promise.reject(error);
+  }
 }
 
 // Push notifications
 self.addEventListener('push', (event) => {
   if (event.data) {
-    const data = event.data.json();
-    const options = {
-      body: data.body,
-      icon: 'https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300',
-      badge: 'https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300',
-      vibrate: [200, 100, 200],
-      tag: 'presensi-notification'
-    };
+    try {
+      const data = event.data.json();
+      const options = {
+        body: data.body || 'Notifikasi dari Presensi FUPA',
+        icon: 'https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300',
+        badge: 'https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300',
+        vibrate: [200, 100, 200],
+        tag: 'presensi-notification',
+        data: data.data || {}
+      };
 
-    event.waitUntil(
-      self.registration.showNotification('Presensi FUPA', options)
-    );
+      event.waitUntil(
+        self.registration.showNotification('Presensi FUPA', options)
+      );
+    } catch (error) {
+      console.error('Error handling push notification:', error);
+      // Fallback notification
+      event.waitUntil(
+        self.registration.showNotification('Presensi FUPA', {
+          body: 'Notifikasi baru dari sistem presensi',
+          icon: 'https://api.iconify.design/material-symbols/workspace-premium.svg?color=%23ffb300'
+        })
+      );
+    }
   }
 });
 
@@ -138,3 +173,22 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
+
+// Periodic sync for background updates
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'content-update') {
+    event.waitUntil(updateContent());
+  }
+});
+
+async function updateContent() {
+  // Implementasi pembaruan konten periodik
+  try {
+    console.log('Periodic sync for content update');
+    // Contoh: Periksa pembaruan data presensi
+    return Promise.resolve();
+  } catch (error) {
+    console.error('Periodic sync failed:', error);
+    return Promise.reject(error);
+  }
+}

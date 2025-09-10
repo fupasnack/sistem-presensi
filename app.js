@@ -1,4 +1,3 @@
-// app.js - Complete optimized version
 // Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyA08VBr5PfN5HB7_eub0aZ9-_FSFFHM62M",
@@ -181,9 +180,28 @@ function guardPage(uid, required) {
   return true;
 }
 
+// Fungsi untuk memeriksa koneksi Firestore
+async function checkFirestoreConnection() {
+  try {
+    const docRef = db.collection("_meta").doc("connectionTest");
+    await docRef.set({ test: true, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
+    await docRef.delete();
+    return true;
+  } catch (error) {
+    console.error("Koneksi Firestore gagal:", error);
+    return false;
+  }
+}
+
 // Auto bootstrap koleksi & dokumen penting
 async function bootstrapCollections(user) {
   try {
+    // Periksa koneksi Firestore terlebih dahulu
+    const isConnected = await checkFirestoreConnection();
+    if (!isConnected) {
+      throw new Error("Tidak dapat terhubung ke database");
+    }
+
     // users profile doc
     const up = db.collection("users").doc(user.uid);
     const userDoc = await up.get();
@@ -198,12 +216,21 @@ async function bootstrapCollections(user) {
       });
     }
 
-    // meta server tick
-    await db.collection("_meta").doc("_srv").set({ 
-      t: firebase.firestore.FieldValue.serverTimestamp() 
-    }, { merge: true });
+    // meta server tick - hanya update jika sudah ada
+    const metaRef = db.collection("_meta").doc("_srv");
+    const metaDoc = await metaRef.get();
+    if (!metaDoc.exists) {
+      await metaRef.set({ 
+        t: firebase.firestore.FieldValue.serverTimestamp(),
+        initialized: true
+      });
+    } else {
+      await metaRef.set({ 
+        t: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
 
-    // settings today default
+    // settings today default - hanya buat jika belum ada
     const todayDoc = db.collection("_settings").doc("today");
     const todayData = await todayDoc.get();
     
@@ -215,55 +242,44 @@ async function bootstrapCollections(user) {
       });
     }
     
-    // Initialize notifications collection with a sample doc if empty
-    const notifsQuery = await db.collection("notifs").limit(1).get();
-    if (notifsQuery.empty) {
-      await db.collection("notifs").add({
-        type: "system",
-        text: "Sistem presensi FUPA telah diinisialisasi",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        from: "system",
-        fromNama: "System",
-        targets: ["all"]
-      });
-    }
-    
-    // Initialize cuti collection with a sample doc if empty
-    const cutiQuery = await db.collection("cuti").limit(1).get();
-    if (cutiQuery.empty) {
-      await db.collection("cuti").add({
-        uid: "system",
-        nama: "System",
-        jenis: "info",
-        tanggal: ymd(new Date()),
-        status: "disetujui",
-        catatan: "Sistem cuti telah diinisialisasi",
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }
-    
+    return true;
   } catch (error) {
     console.error("Error bootstrapping collections:", error);
-    toast("Gagal menginisialisasi sistem. Silakan refresh halaman.", true);
+    throw error;
   }
 }
 
 // Auth routing untuk semua halaman
 auth.onAuthStateChanged(async (user) => {
+  console.log("Auth state changed:", user ? user.uid : "No user");
   const path = location.pathname.toLowerCase();
   
   if (!user) {
     if (path.endsWith("karyawan.html") || path.endsWith("admin.html")) {
+      console.log("Redirecting to login page");
       location.href = "index.html";
     }
-    
     if (path.endsWith("index.html") || path.endsWith("/")) {
       bindLoginPage();
     }
     return;
   }
 
-  await bootstrapCollections(user);
+  console.log("User logged in:", user.uid);
+  
+  try {
+    await bootstrapCollections(user);
+  } catch (error) {
+    console.error("Bootstrap error:", error);
+    toast("Gagal menginisialisasi sistem. Silakan refresh halaman.", true);
+    
+    // Tambahkan delay sebelum redirect untuk memberi waktu membaca pesan error
+    setTimeout(() => {
+      auth.signOut();
+      location.href = "index.html";
+    }, 3000);
+    return;
+  }
 
   // Update server time live
   startServerClock("#serverTime");
@@ -550,7 +566,7 @@ async function setCutiStatus(id, status, adminUid, adminNama) {
   
   // Jika disetujui, buat entri presensi otomatis
   if (status === "disetujui") {
-    await savePresensi({
+    await db.collection("presensi").add({
       uid: cutiData.uid,
       nama: cutiData.nama,
       jenis: "cuti",
@@ -558,7 +574,9 @@ async function setCutiStatus(id, status, adminUid, adminNama) {
       lat: null,
       lng: null,
       selfieUrl: "",
-      serverDate: new Date(cutiData.tanggal)
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      localTime: fmtDateTime(new Date(cutiData.tanggal)),
+      ymd: cutiData.tanggal
     });
   }
 }

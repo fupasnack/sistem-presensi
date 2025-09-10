@@ -203,10 +203,10 @@ async function checkFirestoreConnection() {
   }
 }
 
-// Auto bootstrap koleksi & dokumen penting (Diperbarui)
+// Auto bootstrap koleksi & dokumen penting (Diperbarui sepenuhnya)
 async function bootstrapCollections(user) {
   const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1000; // 1 second
+  const RETRY_DELAY = 1000;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -218,66 +218,78 @@ async function bootstrapCollections(user) {
         throw new Error("Tidak dapat terhubung ke database");
       }
 
-      // users profile doc
-      const up = db.collection("users").doc(user.uid);
-      const userDoc = await up.get();
+      // 1. Inisialisasi dokumen user (untuk semua role)
+      const userRef = db.collection("users").doc(user.uid);
+      const userDoc = await userRef.get();
       
       if (!userDoc.exists) {
-        await up.set({
+        const userData = {
           email: user.email || "",
           nama: user.email.split("@")[0] || "",
           role: ADMIN_UIDS.has(user.uid) ? "admin" : (KARYAWAN_UIDS.has(user.uid) ? "karyawan" : "unknown"),
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        
+        await userRef.set(userData);
+        console.log("User document created successfully");
       }
 
-      // Hanya admin yang dapat menginisialisasi meta dan settings
+      // 2. Hanya admin yang dapat menginisialisasi meta dan settings
       if (ADMIN_UIDS.has(user.uid)) {
-        // meta server tick - hanya update jika sudah ada
-        const metaRef = db.collection("_meta").doc("_srv");
-        const metaDoc = await metaRef.get();
-        if (!metaDoc.exists) {
-          await metaRef.set({ 
-            t: firebase.firestore.FieldValue.serverTimestamp(),
-            initialized: true
-          });
-        } else {
-          await metaRef.set({ 
-            t: firebase.firestore.FieldValue.serverTimestamp()
-          }, { merge: true });
-        }
+        try {
+          // Meta document
+          const metaRef = db.collection("_meta").doc("_srv");
+          const metaDoc = await metaRef.get();
+          
+          if (!metaDoc.exists) {
+            await metaRef.set({ 
+              t: firebase.firestore.FieldValue.serverTimestamp(),
+              initialized: true
+            });
+            console.log("Meta document created successfully");
+          }
 
-        // settings today default - hanya buat jika belum ada
-        const todayDoc = db.collection("_settings").doc("today");
-        const todayData = await todayDoc.get();
-        
-        if (!todayData.exists) {
-          await todayDoc.set({
-            mode: "auto", 
-            date: ymd(new Date()),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
+          // Settings document
+          const settingsRef = db.collection("_settings").doc("today");
+          const settingsDoc = await settingsRef.get();
+          
+          if (!settingsDoc.exists) {
+            await settingsRef.set({
+              mode: "auto", 
+              date: ymd(new Date()),
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log("Settings document created successfully");
+          }
+        } catch (adminError) {
+          console.warn("Admin-specific initialization skipped:", adminError);
+          // Lanjutkan tanpa gagal total jika inisialisasi admin-specific bermasalah
         }
       }
       
-      console.log("Bootstrap successful");
+      console.log("Bootstrap successful on attempt", attempt);
       return true;
       
     } catch (error) {
       console.error(`Bootstrap attempt ${attempt} failed:`, error);
       
       if (attempt === MAX_RETRIES) {
-        throw error; // Throw error setelah semua retry gagal
+        // Jangan throw error untuk karyawan yang tidak punya akses ke meta/settings
+        if (error.code === 'permission-denied' && !ADMIN_UIDS.has(user.uid)) {
+          console.log("Karyawan doesn't need admin collections, proceeding anyway");
+          return true;
+        }
+        throw error;
       }
       
       // Tunggu sebelum retry (exponential backoff)
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * attempt));
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, attempt-1)));
     }
   }
 }
 
-// Auth routing untuk semua halaman (Diperbarui error handling)
+// Auth routing untuk semua halaman (Diperbarui sepenuhnya)
 auth.onAuthStateChanged(async (user) => {
   console.log("Auth state changed:", user ? user.uid : "No user");
   const path = location.pathname.toLowerCase();
@@ -522,7 +534,7 @@ function subscribeRiwayat(uid, cb) {
     });
 }
 
-// Notifikasi list untuk karyawan (Diperbarui)
+// Notifikasi list untuk karyawan (Diperbarui sepenuhnya)
 function subscribeNotifForKaryawan(uid, cb) {
   return db.collection("notifs")
     .where("targets", "array-contains", uid)
@@ -859,7 +871,7 @@ async function bindKaryawanPage(user) {
           <span class="material-symbols-rounded">schedule</span>
           <b>${it.localTime}</b>
           <span>•</span>
-          <span>${it.jenis}</span>
+          <span>${it.jenis</span>
         </div>
         <span class="status ${badge}">${it.status}</span>
       `;
@@ -918,7 +930,7 @@ async function bindKaryawanPage(user) {
     });
   });
 
-  // Cuti FAB
+    // Cuti FAB
   $("#cutiFab").onclick = () => $("#cutiDlg").showModal();
   
   $("#ajukanCutiBtn").onclick = async () => {
